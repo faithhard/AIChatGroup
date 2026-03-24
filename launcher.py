@@ -42,8 +42,32 @@ if __name__ == "__main__":
     # 让 SQLite 数据库写到 exe 同级目录
     os.environ["BOTGROUP_DB_DIR"] = runtime_dir
 
-    sys.path.insert(0, resource_dir)
-    from config import HOST, PORT
+    # 如果 exe 旁边没有 config.py，从打包资源里复制一份出来
+    runtime_config = os.path.join(runtime_dir, "config.py")
+    resource_config = os.path.join(resource_dir, "config.py")
+    if not os.path.exists(runtime_config) and os.path.exists(resource_config):
+        import shutil
+        shutil.copy2(resource_config, runtime_config)
+        print(f"已生成配置文件: {runtime_config}")
+        print("请编辑 config.py 填入你的 API Key，然后重新运行。")
+
+    # ★ 关键：用 importlib 强制从 exe 同目录加载 config.py
+    #   PyInstaller 的 FrozenImporter 优先级高于 sys.path，
+    #   普通 import config 永远命中打包内的旧文件。
+    #   这里手动加载后塞进 sys.modules，后续所有模块
+    #   （包括 main.py 的 from config import ...）都会拿到这份。
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("config", runtime_config)
+    config_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config_mod)
+    sys.modules["config"] = config_mod  # 覆盖缓存
+
+    HOST = config_mod.HOST
+    PORT = config_mod.PORT
+    print(f"配置文件: {runtime_config}")
+    print(f"默认 Bot 数量: {len(config_mod.DEFAULT_BOTS)}")
+    for b in config_mod.DEFAULT_BOTS:
+        print(f"  - {b['name']} ({b['model']}) -> {b['base_url']}")
 
     threading.Thread(target=open_browser, args=(PORT,), daemon=True).start()
 

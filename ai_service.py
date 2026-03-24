@@ -128,8 +128,12 @@ async def fetch_ai_response(bot_name, model, api_key, base_url, prompt_history, 
             "content": [{"type": "text", "text": text}]
         })
 
-    # 3. 构造请求
-    url = f"{base_url.rstrip('/')}/v1/chat/completions"
+    # 3. 构造请求（兼容 base_url 末尾带不带 /v1）
+    _base = base_url.rstrip('/')
+    if _base.endswith('/v1'):
+        url = f"{_base}/chat/completions"
+    else:
+        url = f"{_base}/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
