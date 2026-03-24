@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <title>BotGroup Pro - 智能协作</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@3.9.4/dist/full.css" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/styles/github-dark.min.css">
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.8.0/build/highlight.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: #f8fafc; height: 100vh; display: flex; overflow: hidden; }
+        [v-cloak] { display: none; }
+
+        .chat-bubble {
+            max-width: 72vw; width: fit-content; min-width: 3rem;
+            padding: 0.65rem 1rem; border-radius: 1.2rem;
+            word-break: break-word; overflow-wrap: anywhere;
+            white-space: normal; display: inline-block;
+        }
+        .bubble-user { background: #4f46e5; color: white; border-bottom-right-radius: 0.2rem; box-shadow: 0 4px 12px rgba(79,70,229,0.2); }
+        .bubble-bot  { background: white; border: 1px solid #e2e8f0; color: #1e293b; border-bottom-left-radius: 0.2rem; }
+
+        .bubble-user .markdown-body { color: white; }
+        .bubble-user .markdown-body a { color: #c7d2fe; }
+        .markdown-body { font-size: 0.9rem; line-height: 1.6; }
+        .markdown-body p { margin: 0 0 0.4em; }
+        .markdown-body p:last-child { margin-bottom: 0; }
+        .markdown-body pre { background: #1e293b; padding: 0.85rem 1rem; border-radius: 0.6rem; overflow-x: auto; color: #f8fafc; margin: 0.5rem 0; }
+        .markdown-body code:not(pre code) { background: rgba(0,0,0,0.08); padding: 0.1em 0.35em; border-radius: 0.3rem; font-size: 0.85em; }
+        .bubble-user .markdown-body code:not(pre code) { background: rgba(255,255,255,0.2); }
+
+        .attach-bar { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.75rem; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 1rem; width: fit-content; max-width: 100%; }
+        .attach-bar .file-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .attach-bar .file-name { font-size: 0.75rem; color: #4338ca; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+
+        .auto-textarea { resize: none; min-height: 52px; max-height: 200px; line-height: 1.5; overflow-y: auto; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .prompt-area { font-size: 0.72rem; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.6rem; padding: 0.4rem 0.6rem; width: 100%; resize: none; min-height: 48px; max-height: 120px; }
+
+        /* 消息操作栏 */
+        .msg-actions { display: flex; align-items: center; gap: 4px; opacity: 0; transition: opacity 0.15s; }
+        .msg-row:hover .msg-actions { opacity: 1; }
+        .msg-action-btn { width: 22px; height: 22px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; transition: transform 0.1s; }
+        .msg-action-btn:hover { transform: scale(1.15); }
+        .btn-del  { background: #fca5a5; color: #7f1d1d; }
+        .btn-edit { background: #a5b4fc; color: #1e1b4b; }
+
+        /* 编辑模式输入框：独立于气泡颜色之外 */
+        .edit-textarea {
+            width: 100%; min-width: 240px; max-width: 60vw;
+            background: #f8fafc; border: 2px solid #818cf8;
+            border-radius: 0.75rem; padding: 0.5rem 0.75rem;
+            color: #1e293b; font-size: 0.9rem;
+            resize: none; outline: none; line-height: 1.5;
+            min-height: 44px; max-height: 160px; overflow-y: auto;
+        }
+        .edit-textarea:focus { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.15); }
+
+        /* 群组重命名 inline input */
+        .group-rename-input { background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.4); color: white; font-size: 0.875rem; font-weight: 700; outline: none; width: 100%; }
+    </style>
+</head>
+<body>
+<div id="app" v-cloak class="flex w-full h-full">
+    {% raw %}
+    <!-- ══ 左侧：群组导航 ══ -->
+    <aside class="w-64 bg-slate-900 flex flex-col z-30 shadow-2xl">
+        <div class="p-8">
+            <h1 class="text-white font-black text-xl italic tracking-tighter">BotGroup.</h1>
+        </div>
+        <div class="flex-1 overflow-y-auto px-4 no-scrollbar space-y-1">
+            <div v-for="g in groups" :key="g.id"
+                 :class="['group/g p-3 rounded-xl cursor-pointer transition-all flex items-center gap-2',
+                          currentGroup?.id === g.id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/30'
+                                                    : 'text-slate-400 hover:bg-slate-800 hover:text-white']"
+                 @click="renamingGroupId !== g.id && loadGroup(g.id)">
+                <span class="font-mono opacity-40 flex-shrink-0">#</span>
+                <!-- 重命名 inline -->
+                <input v-if="renamingGroupId === g.id"
+                       v-model="renamingGroupName"
+                       class="group-rename-input flex-1"
+                       @keydown.enter.prevent="confirmRename(g)"
+                       @keydown.escape="renamingGroupId = null"
+                       @blur="confirmRename(g)"
+                       @click.stop
+                       ref="renameInput" />
+                <span v-else class="font-bold text-sm truncate flex-1">{{ g.name }}</span>
+                <!-- 操作按钮（悬停显示） -->
+                <div class="flex gap-1 opacity-0 group-hover/g:opacity-100 transition-opacity flex-shrink-0" @click.stop>
+                    <button @click.stop="startRename(g)"
+                            class="w-5 h-5 rounded bg-white/10 hover:bg-white/20 text-white text-[10px] flex items-center justify-center"
+                            title="重命名">✏️</button>
+                    <button v-if="!g.is_default" @click.stop="deleteGroup(g)"
+                            class="w-5 h-5 rounded bg-red-500/30 hover:bg-red-500/60 text-white text-[10px] flex items-center justify-center"
+                            title="删除群聊">🗑</button>
+                </div>
+            </div>
+            <button @click="showCreateGroup = true"
+                    class="btn btn-outline border-slate-700 text-slate-500 btn-sm w-full mt-6 rounded-xl hover:bg-slate-800">
+                ＋ 创建群聊
+            </button>
+        </div>
+    </aside>
+
+    <!-- ══ 中间：聊天主窗 ══ -->
+    <main class="flex-1 flex flex-col bg-white overflow-hidden shadow-inner relative">
+        <!-- 顶部工具栏 -->
+        <div class="flex items-center justify-between px-8 py-3 border-b border-slate-100 bg-white">
+            <span class="text-sm font-bold text-slate-600">{{ currentGroup?.name || '请选择群聊' }}</span>
+            <button v-if="currentGroup" @click="clearHistory"
+                    class="btn btn-ghost btn-xs text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl">
+                🗑 清空记录
+            </button>
+        </div>
+
+        <!-- 消息列表 -->
+        <div class="flex-1 overflow-y-auto px-8 py-6 space-y-6 no-scrollbar" id="chat-container">
+            <div v-for="(msg, idx) in messages" :key="msg.id ?? idx"
+                 :class="['msg-row flex w-full', msg.role === 'user' ? 'justify-end' : 'justify-start']">
+                <div :class="['flex items-end gap-3', msg.role === 'user' ? 'flex-row-reverse' : 'flex-row']"
+                     style="max-width:88%">
+                    <!-- 头像 -->
+                    <div class="w-9 h-9 rounded-2xl bg-slate-50 border shadow-sm flex items-center justify-center text-lg flex-shrink-0">
+                        {{ msg.role === 'user' ? '👤' : getBotAvatar(msg.sender) }}
+                    </div>
+                    <!-- 消息块 -->
+                    <div :class="['flex flex-col', msg.role === 'user' ? 'items-end' : 'items-start']">
+                        <!-- 发送者 + 操作按钮 -->
+                        <div :class="['flex items-center gap-2 mb-1 px-1',
+                                      msg.role === 'user' ? 'flex-row-reverse' : 'flex-row']">
+                            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                {{ msg.sender }}
+                            </span>
+                            <div v-if="msg.id != null" class="msg-actions">
+                                <!-- 编辑（仅用户消息） -->
+                                <button v-if="msg.role === 'user'"
+                                        @click="startEdit(msg, idx)"
+                                        class="msg-action-btn btn-edit" title="编辑并重新发送">✏</button>
+                                <!-- 删除 -->
+                                <button @click="deleteMessage(msg, idx)"
+                                        class="msg-action-btn btn-del" title="删除此消息">×</button>
+                            </div>
+                        </div>
+
+                        <!-- 编辑模式 -->
+                        <div v-if="editingMsgId === msg.id" class="flex flex-col items-end gap-2">
+                            <textarea v-model="editingContent"
+                                      class="edit-textarea"
+                                      @keydown.enter.exact.prevent="confirmEdit(msg, idx)"
+                                      @keydown.escape="editingMsgId = null"
+                                      @input="autoResizeEdit($event)"
+                                      rows="1"></textarea>
+                            <div class="flex gap-2">
+                                <button @click="editingMsgId = null"
+                                        class="btn btn-xs btn-ghost text-slate-400 rounded-xl">取消</button>
+                                <button @click="confirmEdit(msg, idx)"
+                                        class="btn btn-xs btn-primary rounded-xl">确定重发</button>
+                            </div>
+                        </div>
+
+                        <!-- 正常气泡 -->
+                        <div v-else :class="['chat-bubble', msg.role === 'user' ? 'bubble-user' : 'bubble-bot']">
+                            <div v-if="msg.file_path && msg.is_image" class="mb-2">
+                                <img :src="msg.file_path"
+                                     class="rounded-xl max-h-72 max-w-xs shadow-md cursor-pointer hover:opacity-90 transition-opacity"
+                                     @click="openImage(msg.file_path)" />
+                            </div>
+                            <div v-else-if="msg.file_path && !msg.is_image" class="attach-bar mb-2">
+                                <span class="file-icon">📄</span>
+                                <span class="file-name">{{ msg.file_path.split('/').pop() }}</span>
+                            </div>
+                            <div v-if="msg.content" class="markdown-body" v-html="renderMarkdown(msg.content)"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 加载动画 -->
+            <div v-if="loading" class="flex gap-3 items-center">
+                <div class="w-9 h-9 rounded-2xl bg-slate-100 animate-pulse flex-shrink-0"></div>
+                <div class="flex gap-1 items-center h-9 px-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <span class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay:0ms"></span>
+                    <span class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay:150ms"></span>
+                    <span class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay:300ms"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 输入区 -->
+        <footer class="px-8 py-5 bg-white border-t border-slate-100">
+            <div class="max-w-4xl mx-auto flex flex-col gap-2">
+                <div v-if="attachedFile" class="attach-bar">
+                    <img v-if="attachedFile.is_image" :src="attachedFile.file_path"
+                         class="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                    <span v-else class="file-icon">📄</span>
+                    <span class="file-name">{{ attachedFile.filename }}</span>
+                    <button @click="attachedFile = null"
+                            class="ml-1 w-5 h-5 rounded-full bg-red-400 text-white text-xs flex items-center justify-center flex-shrink-0 hover:bg-red-500">×</button>
+                </div>
+                <div class="flex items-end gap-3">
+                    <button @click="$refs.fileInput.click()"
+                            class="btn btn-circle btn-ghost text-slate-400 bg-slate-50 flex-shrink-0" title="上传文件">📎</button>
+                    <input type="file" ref="fileInput" class="hidden" @change="handleFileUpload" />
+                    <textarea v-model="userInput" ref="inputBox"
+                              @input="adjustHeight"
+                              @keydown.enter.exact.prevent="sendMessage"
+                              @keydown.shift.enter.exact="() => {}"
+                              placeholder="给群里发消息... (Enter 发送，Shift+Enter 换行)"
+                              class="auto-textarea flex-1 bg-slate-100 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 border-none transition-all"></textarea>
+                    <button @click="sendMessage" :disabled="loading || !currentGroup"
+                            class="btn btn-primary h-[52px] px-7 rounded-2xl border-none shadow-lg shadow-indigo-100 flex-shrink-0">发送</button>
+                </div>
+            </div>
+        </footer>
+    </main>
+
+    <!-- ══ 右侧：管理栏 ══ -->
+    <aside class="w-72 bg-slate-50 border-l border-slate-200 flex flex-col">
+        <div class="p-5 border-b bg-white">
+            <h3 class="font-black text-slate-800 text-xs uppercase tracking-widest">群组设置</h3>
+        </div>
+        <div class="p-5 space-y-6 flex-1 overflow-y-auto no-scrollbar">
+            <!-- 讨论模式 -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-bold text-slate-600">全员讨论模式</span>
+                    <input type="checkbox" class="toggle toggle-primary toggle-sm"
+                           v-model="currentGroup.discussion_mode" @change="toggleDiscussion" v-if="currentGroup" />
+                </div>
+                <p class="text-[10px] text-slate-400 font-bold">AI 之间互相引用观点</p>
+            </div>
+
+            <!-- 成员列表 -->
+            <div>
+                <div class="flex items-center justify-between mb-3 px-1">
+                    <span class="text-xs font-black text-slate-500 uppercase">
+                        群成员 ({{ currentGroup?.bots.length || 0 }})
+                    </span>
+                    <button @click="showAddBot = true"
+                            class="btn btn-ghost btn-xs text-indigo-600 font-bold" v-if="currentGroup">+ 邀请</button>
+                </div>
+
+                <!-- 空成员提示 -->
+                <div v-if="currentGroup && currentGroup.bots.length === 0"
+                     class="text-center py-6 text-slate-400 text-xs">
+                    <div class="text-2xl mb-2">🤖</div>
+                    <div>还没有 AI 成员</div>
+                    <div class="text-[10px] mt-1">点击「邀请」添加</div>
+                </div>
+
+                <div class="space-y-2">
+                    <div v-for="bot in currentGroup?.bots" :key="bot.id"
+                         class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div class="flex items-center gap-3 p-3">
+                            <div class="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center shadow-inner flex-shrink-0">
+                                {{ bot.avatar || '🤖' }}
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="text-[11px] font-bold text-slate-800 truncate">{{ bot.name }}</div>
+                                <div class="text-[9px] text-slate-400 uppercase tracking-tighter truncate">{{ bot.model }}</div>
+                            </div>
+                            <div class="flex gap-1 flex-shrink-0">
+                                <button @click="toggleBotPrompt(bot)"
+                                        class="w-6 h-6 rounded-lg bg-slate-100 hover:bg-indigo-100 text-slate-400 hover:text-indigo-500 flex items-center justify-center text-xs"
+                                        title="编辑系统提示词">✏️</button>
+                                <button @click="deleteBot(bot)"
+                                        class="w-6 h-6 rounded-lg bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 flex items-center justify-center text-xs"
+                                        title="移除成员">🗑</button>
+                            </div>
+                        </div>
+                        <div v-if="editingBotId === bot.id" class="px-3 pb-3">
+                            <textarea v-model="bot.system_prompt"
+                                      class="prompt-area"
+                                      placeholder="系统提示词（留空使用默认）"
+                                      @blur="saveBotPrompt(bot)"></textarea>
+                            <div class="text-[9px] text-slate-400 mt-1">失去焦点自动保存</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- 弹窗：创建群聊 -->
+    <div class="modal" :class="{'modal-open': showCreateGroup}">
+        <div class="modal-box rounded-3xl">
+            <h3 class="font-black text-lg mb-4">创建新群聊</h3>
+            <input v-model="newGroupName" placeholder="群聊名称"
+                   class="input input-bordered w-full rounded-2xl" @keydown.enter="createGroup" />
+            <div class="modal-action">
+                <button class="btn btn-ghost" @click="showCreateGroup = false">取消</button>
+                <button class="btn btn-primary px-8 rounded-xl" @click="createGroup">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 弹窗：添加 Bot -->
+    <div class="modal" :class="{'modal-open': showAddBot}">
+        <div class="modal-box rounded-3xl">
+            <h3 class="font-black text-lg mb-5 text-center">添加新 AI</h3>
+            <div class="space-y-3">
+                <input v-model="newBot.name" placeholder="名字" class="input input-bordered w-full rounded-2xl" />
+                <input v-model="newBot.model" placeholder="模型 ID (如: gpt-4o)" class="input input-bordered w-full rounded-2xl" />
+                <input v-model="newBot.api_key" type="password" placeholder="API Key" class="input input-bordered w-full rounded-2xl" />
+                <input v-model="newBot.base_url" placeholder="Base URL" class="input input-bordered w-full rounded-2xl" />
+                <textarea v-model="newBot.system_prompt"
+                          placeholder="系统提示词（可选）"
+                          class="prompt-area w-full rounded-2xl" style="min-height:72px"></textarea>
+            </div>
+            <div class="modal-action">
+                <button class="btn btn-ghost" @click="showAddBot = false">取消</button>
+                <button class="btn btn-primary px-8 rounded-xl" @click="addBot">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 图片预览 -->
+    <div v-if="previewImage" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center"
+         @click="previewImage = null">
+        <img :src="previewImage" class="max-w-[90vw] max-h-[90vh] rounded-2xl shadow-2xl" />
+    </div>
+    {% endraw %}
+</div>
+
+<script>
+    const { createApp, ref, onMounted, nextTick } = Vue;
+    const md = window.markdownit({
+        html: false, linkify: true, breaks: true,
+        highlight: (str, lang) => {
+            if (lang && hljs.getLanguage(lang)) {
+                try { return hljs.highlight(str, { language: lang }).value; } catch {}
+            }
+            return '';
+        }
+    });
+
+    createApp({
+        setup() {
+            const groups          = ref([]);
+            const currentGroup    = ref(null);
+            const messages        = ref([]);
+            const userInput       = ref('');
+            const loading         = ref(false);
+            const attachedFile    = ref(null);
+            const showCreateGroup = ref(false);
+            const newGroupName    = ref('');
+            const showAddBot      = ref(false);
+            const newBot          = ref({ name: '', model: '', api_key: '', base_url: 'https://api.openai.com/v1', system_prompt: '' });
+            const inputBox        = ref(null);
+            const editingBotId    = ref(null);
+            const previewImage    = ref(null);
+            const renamingGroupId   = ref(null);
+            const renamingGroupName = ref('');
+            const editingMsgId    = ref(null);
+            const editingContent  = ref('');
+
+            const renderMarkdown = t => t ? md.render(String(t)) : '';
+            const scrollBottom   = () => {
+                const el = document.getElementById('chat-container');
+                if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+            };
+            const adjustHeight = () => {
+                const el = inputBox.value;
+                if (!el) return;
+                el.style.height = '52px';
+                el.style.height = Math.min(el.scrollHeight, 200) + 'px';
+            };
+            const autoResizeEdit = (e) => {
+                e.target.style.height = 'auto';
+                e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+            };
+            const getBotAvatar = name => currentGroup.value?.bots.find(b => b.name === name)?.avatar || '\u{1F916}';
+            const openImage    = src => { previewImage.value = src; };
+
+            const handleFileUpload = async (e) => {
+                const f = e.target.files[0]; if (!f) return;
+                const fd = new FormData(); fd.append('file', f);
+                const res = await fetch('/api/upload', { method: 'POST', body: fd });
+                attachedFile.value = await res.json();
+                e.target.value = '';
+            };
+
+            const loadGroups = async () => {
+                const res = await fetch('/api/groups');
+                groups.value = await res.json();
+                if (groups.value.length > 0 && !currentGroup.value) loadGroup(groups.value[0].id);
+            };
+
+            const loadGroup = async (id) => {
+                const res = await fetch(`/api/groups/${id}`);
+                currentGroup.value = await res.json();
+                messages.value = currentGroup.value.messages;
+                editingBotId.value = null;
+                editingMsgId.value = null;
+                nextTick(scrollBottom);
+            };
+
+            const createGroup = async () => {
+                if (!newGroupName.value.trim()) return;
+                const fd = new FormData(); fd.append('name', newGroupName.value.trim());
+                await fetch('/api/groups', { method: 'POST', body: fd });
+                showCreateGroup.value = false; newGroupName.value = '';
+                await loadGroups();
+            };
+
+            const startRename = (g) => {
+                renamingGroupId.value   = g.id;
+                renamingGroupName.value = g.name;
+                nextTick(() => {
+                    const inp = document.querySelector('.group-rename-input');
+                    if (inp) inp.focus();
+                });
+            };
+            const confirmRename = async (g) => {
+                const name = renamingGroupName.value.trim();
+                if (!name || name === g.name) { renamingGroupId.value = null; return; }
+                const fd = new FormData(); fd.append('name', name);
+                const res = await fetch(`/api/groups/${g.id}/rename`, { method: 'PUT', body: fd });
+                if (res.ok) {
+                    const grp = groups.value.find(x => x.id === g.id);
+                    if (grp) grp.name = name;
+                    if (currentGroup.value?.id === g.id) currentGroup.value.name = name;
+                }
+                renamingGroupId.value = null;
+            };
+
+            const deleteGroup = async (g) => {
+                if (!confirm(`\u786E\u5B9A\u5220\u9664\u7FA4\u804A\u300C${g.name}\u300D\uFF1F\u6240\u6709\u6D88\u606F\u5C06\u4E00\u5E76\u5220\u9664\u3002`)) return;
+                const res = await fetch(`/api/groups/${g.id}`, { method: 'DELETE' });
+                if (!res.ok) { alert('\u5220\u9664\u5931\u8D25'); return; }
+                groups.value = groups.value.filter(x => x.id !== g.id);
+                if (currentGroup.value?.id === g.id) {
+                    currentGroup.value = null; messages.value = [];
+                    if (groups.value.length > 0) loadGroup(groups.value[0].id);
+                }
+            };
+
+            const addBot = async () => {
+                const fd = new FormData();
+                Object.keys(newBot.value).forEach(k => fd.append(k, newBot.value[k]));
+                await fetch(`/api/groups/${currentGroup.value.id}/bots`, { method: 'POST', body: fd });
+                showAddBot.value = false;
+                newBot.value = { name: '', model: '', api_key: '', base_url: 'https://api.openai.com/v1', system_prompt: '' };
+                loadGroup(currentGroup.value.id);
+            };
+
+            const deleteBot = async (bot) => {
+                if (!confirm(`\u786E\u5B9A\u5C06\u300C${bot.name}\u300D\u79FB\u51FA\u672C\u7FA4\uFF1F`)) return;
+                const res = await fetch(`/api/groups/${currentGroup.value.id}/bots/${bot.id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    currentGroup.value.bots = currentGroup.value.bots.filter(b => b.id !== bot.id);
+                    if (editingBotId.value === bot.id) editingBotId.value = null;
+                }
+            };
+
+            const toggleBotPrompt = (bot) => {
+                editingBotId.value = editingBotId.value === bot.id ? null : bot.id;
+            };
+            const saveBotPrompt = async (bot) => {
+                const fd = new FormData(); fd.append('system_prompt', bot.system_prompt || '');
+                await fetch(`/api/groups/${currentGroup.value.id}/bots/${bot.id}`, { method: 'PUT', body: fd });
+            };
+
+            const sendMessage = async () => {
+                if (!currentGroup.value) return;
+                if (!userInput.value.trim() && !attachedFile.value) return;
+                const text = userInput.value; const file = attachedFile.value;
+                messages.value.push({ sender: 'User', role: 'user', content: text,
+                    file_path: file?.file_path || null, is_image: file?.is_image || false });
+                userInput.value = ''; attachedFile.value = null; loading.value = true;
+                nextTick(() => { scrollBottom(); adjustHeight(); });
+                const fd = new FormData(); fd.append('content', text);
+                if (file) { fd.append('file_path', file.file_path); fd.append('is_image', file.is_image); }
+                try {
+                    const res  = await fetch(`/api/groups/${currentGroup.value.id}/chat`, { method: 'POST', body: fd });
+                    const data = await res.json();
+                    messages.value.splice(messages.value.length - 1, 1, {
+                        id: data.user_msg_id, sender: 'User', role: 'user',
+                        content: text, file_path: file?.file_path || null, is_image: file?.is_image || false
+                    });
+                    data.responses.forEach(r => messages.value.push(r));
+                } catch (err) {
+                    messages.value.push({ sender: 'System', role: 'assistant', content: `\u274C \u8BF7\u6C42\u5931\u8D25\uFF1A${err.message}` });
+                } finally {
+                    loading.value = false; nextTick(scrollBottom);
+                }
+            };
+
+            const deleteMessage = async (msg, idx) => {
+                if (!msg.id) return;
+                messages.value.splice(idx, 1);
+                await fetch(`/api/messages/${msg.id}`, { method: 'DELETE' });
+            };
+
+            const startEdit = (msg) => {
+                editingMsgId.value   = msg.id;
+                editingContent.value = msg.content || '';
+                nextTick(() => {
+                    const ta = document.querySelector('.edit-textarea');
+                    if (ta) { ta.focus(); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 160) + 'px'; }
+                });
+            };
+
+            const confirmEdit = async (msg, idx) => {
+                const newContent = editingContent.value.trim();
+                if (!newContent) return;
+                editingMsgId.value = null;
+                messages.value = messages.value.slice(0, idx);
+                messages.value.push({ id: msg.id, sender: 'User', role: 'user',
+                    content: newContent, file_path: msg.file_path, is_image: msg.is_image });
+                loading.value = true;
+                nextTick(scrollBottom);
+                const fd = new FormData();
+                fd.append('content', newContent);
+                if (msg.file_path) { fd.append('file_path', msg.file_path); fd.append('is_image', msg.is_image); }
+                try {
+                    const res  = await fetch(`/api/messages/${msg.id}/edit`, { method: 'POST', body: fd });
+                    const data = await res.json();
+                    messages.value[messages.value.length - 1].id = data.user_msg_id;
+                    data.responses.forEach(r => messages.value.push(r));
+                } catch (err) {
+                    messages.value.push({ sender: 'System', role: 'assistant', content: `\u274C \u91CD\u53D1\u5931\u8D25\uFF1A${err.message}` });
+                } finally {
+                    loading.value = false; nextTick(scrollBottom);
+                }
+            };
+
+            const clearHistory = async () => {
+                if (!currentGroup.value) return;
+                if (!confirm(`\u786E\u5B9A\u6E05\u7A7A\u300C${currentGroup.value.name}\u300D\u7684\u6240\u6709\u804A\u5929\u8BB0\u5F55\u5417\uFF1F`)) return;
+                await fetch(`/api/groups/${currentGroup.value.id}/messages`, { method: 'DELETE' });
+                messages.value = [];
+            };
+
+            const toggleDiscussion = async () => {
+                const fd = new FormData(); fd.append('enabled', currentGroup.value.discussion_mode);
+                await fetch(`/api/groups/${currentGroup.value.id}/toggle_discussion`, { method: 'POST', body: fd });
+            };
+
+            onMounted(loadGroups);
+
+            return {
+                groups, currentGroup, messages, userInput, loading, attachedFile,
+                showCreateGroup, newGroupName, showAddBot, newBot, inputBox,
+                editingBotId, previewImage,
+                renamingGroupId, renamingGroupName,
+                editingMsgId, editingContent,
+                renderMarkdown, adjustHeight, autoResizeEdit, scrollBottom,
+                handleFileUpload, loadGroup, createGroup,
+                startRename, confirmRename, deleteGroup,
+                addBot, deleteBot, toggleBotPrompt, saveBotPrompt,
+                sendMessage, deleteMessage, startEdit, confirmEdit,
+                clearHistory, toggleDiscussion, getBotAvatar, openImage
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
