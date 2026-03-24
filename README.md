@@ -65,11 +65,11 @@ BotGroup/
 ```python
 DEFAULT_BOTS = [
     {
-        "name": "GPT-4o",
-        "model": "gpt-4o",
+        "name": "GPT-4o",                # <-- 改这里
+        "model": "gpt-4o",               # <-- 改这里
         "api_key": "sk-你的密钥",         # <-- 改这里
-        "base_url": "https://api.openai.com/v1",
-        "system_prompt": "",
+        "base_url": "https://api.openai.com/v1", # <-- 改这里
+        "system_prompt": "",           # <-- 这个可以在ui界面进行配置
     },
     # 可继续添加更多...
 ]
@@ -96,7 +96,7 @@ BotGroup 启动中... 访问 http://127.0.0.1:8000
 **1. 克隆项目**
 
 ```bash
-git clone https://github.com/your-username/BotGroup.git
+git clone https://github.com/faithhard/AIChatGroup.git
 cd BotGroup
 ```
 
